@@ -2,9 +2,11 @@ import torch
 import torch.nn as nn
 import numpy as np
 import statsmodels.api as sm
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.preprocessing import MinMaxScaler
 from config import INPUT_DIM, SEQ_LEN, DEVICE, MODEL_PATH
 
-# SARIMA-EE-LSTM model
+# --- Model Definition ---
 class SARIMA_EELSTM(nn.Module):
     def __init__(self, input_dim=INPUT_DIM, hidden_dim=64, num_layers=2):
         super(SARIMA_EELSTM, self).__init__()
@@ -12,29 +14,14 @@ class SARIMA_EELSTM(nn.Module):
         self.fc = nn.Linear(hidden_dim, input_dim)
 
     def forward(self, x):
-        # x shape: (batch_size, seq_len, input_dim)
         out, _ = self.lstm(x)
-        out = out[:, -1, :]  # فقط آخرین تایم‌استپ
+        out = out[:, -1, :]  # Last time-step
         out = self.fc(out)
-        return out  # shape: (batch_size, input_dim)
+        return out
 
-# Forecast function using the model
+# --- Forecast Function ---
 def forecast(model, input_sequence, forecast_steps=1):
-    """
-    Predict future steps based on input_sequence.
-
-    Args:
-        model: trained SARIMA_EELSTM model
-        input_sequence: numpy array (seq_len, input_dim)
-        forecast_steps: how many steps to forecast
-
-    Returns:
-        forecasts: np.array of shape (forecast_steps, input_dim)
-        upper_bounds: np.array (forecast_steps, input_dim)
-        lower_bounds: np.array (forecast_steps, input_dim)
-    """
     model.eval()
-
     input_seq = torch.tensor(input_sequence[-SEQ_LEN:], dtype=torch.float32).unsqueeze(0).to(DEVICE)
     forecasts = []
 
@@ -44,31 +31,17 @@ def forecast(model, input_sequence, forecast_steps=1):
         for _ in range(forecast_steps):
             output = model(current_input)
             forecasts.append(output.squeeze(0).cpu().numpy())
-
-            # Append the prediction to sequence for next prediction
             next_input = torch.cat([current_input[:, 1:, :], output.unsqueeze(1)], dim=1)
             current_input = next_input
 
     forecasts = np.stack(forecasts, axis=0)
-
-    # Simple bounds (±10% as example)
     upper_bounds = forecasts * 1.1
     lower_bounds = forecasts * 0.9
 
     return forecasts, upper_bounds, lower_bounds
 
-# Fit SARIMA model per feature
+# --- SARIMA per Feature Forecast ---
 def fit_sarima_forecast(data, forecast_steps=1):
-    """
-    Apply SARIMA per feature to forecast.
-
-    Args:
-        data: numpy array (n_samples, n_features)
-        forecast_steps: steps to forecast
-
-    Returns:
-        forecasted_data: (forecast_steps, n_features)
-    """
     data = np.asarray(data)
     n_samples, n_features = data.shape
     forecasted = np.zeros((forecast_steps, n_features))
@@ -82,15 +55,71 @@ def fit_sarima_forecast(data, forecast_steps=1):
             forecasted[:, i] = pred
         except Exception as e:
             print(f"⚠️ SARIMA fitting failed for feature {i}: {e}")
-            # fallback: repeat last value
-            forecasted[:, i] = series[-1]
+            forecasted[:, i] = series[-1]  # fallback
 
     return forecasted
 
-# Optional: load_model (فقط در صورتی که بخوای جداگانه لود کنی)
+# --- Load Saved Model ---
 def load_model(model_path=MODEL_PATH):
     model = SARIMA_EELSTM()
     model.load_state_dict(torch.load(model_path, map_location=DEVICE))
     model.to(DEVICE)
     model.eval()
+    return model
+
+# --- Create Sequences for LSTM ---
+def create_sequences(data, seq_len):
+    sequences = []
+    targets = []
+    for i in range(len(data) - seq_len):
+        seq = data[i:i+seq_len]
+        target = data[i+seq_len]
+        sequences.append(seq)
+        targets.append(target)
+
+    sequences = np.stack(sequences)
+    targets = np.stack(targets)
+
+    return torch.tensor(sequences, dtype=torch.float32), torch.tensor(targets, dtype=torch.float32)
+
+# --- Training ---
+def train_model(data, seq_len, epochs, batch_size, model_path):
+    if isinstance(data, np.ndarray):
+        data = torch.from_numpy(data).float()
+
+    # Normalize data
+    scaler = MinMaxScaler()
+    data = scaler.fit_transform(data.cpu().numpy())
+    data = torch.tensor(data, dtype=torch.float32)
+
+    sequences, targets = create_sequences(data, seq_len)
+    dataset = TensorDataset(sequences, targets)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    model = SARIMA_EELSTM(input_dim=data.shape[1]).to(DEVICE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    criterion = nn.MSELoss()
+
+    model.train()
+    for epoch in range(epochs):
+        total_loss = 0
+        for batch_x, batch_y in loader:
+            batch_x = batch_x.to(DEVICE)
+            batch_y = batch_y.to(DEVICE)
+
+            preds = model(batch_x)
+            loss = criterion(preds, batch_y)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+        avg_loss = total_loss / len(loader)
+        print(f"Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.6f}")
+
+    torch.save(model.state_dict(), model_path)
+    print(f"✅ Model saved at {model_path}")
+
     return model

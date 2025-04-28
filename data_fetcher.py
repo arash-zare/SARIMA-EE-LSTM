@@ -32,7 +32,7 @@ def fetch_latest_data():
 
     return values
 
-def fetch_historical_data(start_offset="7d", step="60s", duration="7d"):
+def fetch_historical_data(start_offset="2m", step="60s", duration="2m"):
     """Fetch historical time-series data for all monitored features."""
     end_time = int(time.time())
     duration_seconds = parse_duration(duration)
