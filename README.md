@@ -136,3 +136,24 @@ python3 main.py
 
 Feel free to customize **data_fetcher.py** and **thresholds** to fit your application needs!
 
+```mermaid
+flowchart TD
+    A[VictoriaMetrics - Time Series Database] -->|PromQL Queries| B[Data Fetcher - fetcher.py - Fetcher Class]
+    B --> C[Preprocessing - preprocessing.py - scaling and sequence creation]
+    C --> D[SARIMA-EE-LSTM Model - model.py - predict future values]
+    D --> E[Compute MSE - detect_anomalies.py - prediction vs actual]
+    E --> F[Compare to Thresholds - config.py - anomaly_threshold]
+    F --> G{Is Anomaly?}
+    G -->|Yes| H1[Mark as Anomaly]
+    G -->|No| H2[Mark as Normal]
+    H1 --> H[Expose Metrics via Flask - main.py - metrics endpoint]
+    H2 --> H
+    H --> I[Prometheus Scrapes metrics Endpoint]
+    I --> J[Alerting Rules or Grafana Dashboard]
+```
+
+
+
+
+
+

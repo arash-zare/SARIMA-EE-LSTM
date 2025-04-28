@@ -5,7 +5,7 @@ import logging
 import argparse
 from data_fetcher import fetch_historical_data
 from model import train_model
-from config import INPUT_DIM, MODEL_PATH, SEQ_LEN
+from config import INPUT_DIM, MODEL_PATH, SEQ_LEN, SCALER_PATH
 
 DATA_CACHE_FILE = "cached_data.npy"
 
@@ -16,7 +16,10 @@ def setup_logger():
     )
 
 def load_or_fetch_data(args):
-    # اگر کش موجود بود، ازش لود کن
+    if args.clear_cache and os.path.exists(DATA_CACHE_FILE):
+        os.remove(DATA_CACHE_FILE)
+        logging.info("🧹 Cleared cached data.")
+
     if os.path.exists(DATA_CACHE_FILE) and not args.force_refresh:
         logging.info(f"Loading cached data from {DATA_CACHE_FILE}...")
         data = np.load(DATA_CACHE_FILE)
@@ -27,21 +30,18 @@ def load_or_fetch_data(args):
         logging.info(f"Fetched data with shape: {data.shape}")
 
         if data.shape[0] == 0:
-            logging.warning("No data received from VictoriaMetrics, using synthetic data...")
+            logging.warning("No data received, using synthetic data...")
             synthetic_samples = max(300, 3 * SEQ_LEN)
             np.random.seed(42)
             data = np.random.randn(synthetic_samples, INPUT_DIM) * 100
             logging.info(f"Using synthetic data with shape: {data.shape}")
 
-        # کش کن برای دفعات بعد
         np.save(DATA_CACHE_FILE, data)
         logging.info(f"Cached data to {DATA_CACHE_FILE}")
 
     return data
 
 def run_training(args, model_path_suffix=""):
-    setup_logger()
-
     try:
         data = load_or_fetch_data(args)
 
@@ -51,6 +51,7 @@ def run_training(args, model_path_suffix=""):
             raise ValueError(f"Expected {INPUT_DIM} features, got {data.shape[1]}")
 
         model_save_path = MODEL_PATH.replace(".pt", f"{model_path_suffix}.pt")
+        scaler_save_path = SCALER_PATH.replace(".pkl", f"{model_path_suffix}.pkl")
 
         logging.info(f"Training SARIMA-EE-LSTM model, saving to {model_save_path}...")
         start_time = time.time()
@@ -60,11 +61,13 @@ def run_training(args, model_path_suffix=""):
             seq_len=SEQ_LEN,
             epochs=args.epochs,
             batch_size=args.batch_size,
-            model_path=model_save_path
+            model_path=model_save_path,
+            scaler_path=scaler_save_path
         )
 
         elapsed = time.time() - start_time
         logging.info(f"✅ Model successfully trained and saved to {model_save_path}")
+        logging.info(f"✅ Scaler saved to {scaler_save_path}")
         logging.info(f"Training completed in {elapsed:.2f} seconds.")
 
     except ValueError as ve:
@@ -83,23 +86,29 @@ def batch_train(args):
     ]
 
     for idx, config in enumerate(configs, 1):
+        logging.info("=" * 50)
         logging.info(f"=== Starting batch {idx}: {config} ===")
+        logging.info("=" * 50)
         args.epochs = config["epochs"]
         args.batch_size = config["batch_size"]
         run_training(args, model_path_suffix=f"_batch{idx}")
 
 if __name__ == "__main__":
+    setup_logger()
+
     parser = argparse.ArgumentParser(description="Train SARIMA-EE-LSTM model with historical or synthetic data.")
     parser.add_argument("--start_offset", type=str, default="10m", help="Start offset for data fetch (e.g., '10m')")
     parser.add_argument("--step", type=str, default="1s", help="Step size for data fetch (e.g., '1s')")
     parser.add_argument("--duration", type=str, default="8m", help="Duration for data fetch (e.g., '8m')")
-    parser.add_argument("--epochs", type=int, default=5, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=30, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size for training")
     parser.add_argument("--force_refresh", action="store_true", help="Force refetch data from VictoriaMetrics instead of cache")
     parser.add_argument("--batch_mode", action="store_true", help="Train multiple models with different configs")
+    parser.add_argument("--clear_cache", action="store_true", help="Clear cached data before training")
     args = parser.parse_args()
 
     if args.batch_mode:
         batch_train(args)
     else:
         run_training(args)
+
