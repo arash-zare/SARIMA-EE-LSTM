@@ -89,12 +89,10 @@ def preprocess_data(data, seq_len=SEQ_LEN):
     """
     data = transform_data(data)
     data_tensor = torch.tensor(data, dtype=torch.float32)
-    print("dddddddddddddddddddddddddd",data_tensor)
     if len(data_tensor) < seq_len:
         raise ValueError(f"[❌] Data length ({len(data_tensor)}) is less than seq_len ({seq_len})")
 
     sequences = torch.stack([data_tensor[i:i+seq_len] for i in range(len(data_tensor) - seq_len + 1)])
-    print("Seeeeeeeeeeeeeeeeeew",sequences)
 
     return sequences
 
@@ -133,3 +131,4 @@ def preprocess_for_forecast(data, seq_len=SEQ_LEN):
     last_seq = data[-seq_len:]
     tensor = torch.tensor(last_seq, dtype=torch.float32).unsqueeze(0)  # Shape: (1, seq_len, n_features)
     return tensor
+

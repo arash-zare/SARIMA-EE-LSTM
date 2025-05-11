@@ -53,7 +53,7 @@ MODEL_PATH = "sarima_eelstm_model.pth"
 SCALER_PATH = "sarima_eelstm_scaler.pkl"
 
 # Fetching settings
-FETCH_INTERVAL = 30     # Fetch interval (seconds)
+FETCH_INTERVAL = 300     # Fetch interval (seconds)
 
 # Device setting (GPU if available, else CPU)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

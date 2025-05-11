@@ -200,48 +200,130 @@ class SARIMAForecaster:
         self.index_col = index_col
         self.model = None
         self.results = None
+        self.min_observations = 10  # Minimum observations needed for SARIMA
 
     def fit(self, data):
-        series = data[:, self.index_col]
-        self.model = sm.tsa.SARIMAX(series, order=self.order, seasonal_order=self.seasonal_order)
-        self.results = self.model.fit(disp=False)
+        try:
+            series = data[:, self.index_col]
+            
+            # Check if we have enough observations
+            if len(series) < self.min_observations:
+                print(f"[⚠️] Not enough observations for SARIMA ({len(series)} < {self.min_observations}). Using simple moving average.")
+                self.results = SimpleMovingAverage(series)
+                return
+            
+            # Remove any NaN or inf values
+            series = np.nan_to_num(series, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            # Ensure data is positive for rate metrics
+            if self.index_col in [0, 1, 3, 4, 5, 7]:  # Rate metrics
+                series = np.maximum(series, 0)
+            
+            # Initialize SARIMA with more conservative parameters
+            self.model = sm.tsa.SARIMAX(
+                series,
+                order=self.order,
+                seasonal_order=self.seasonal_order,
+                enforce_stationarity=False,
+                enforce_invertibility=False
+            )
+            
+            # Fit with more conservative settings
+            self.results = self.model.fit(
+                disp=False,
+                maxiter=50,
+                method='lbfgs',
+                start_params=None
+            )
+            
+            print(f"[✅] SARIMA model fitted successfully for feature {self.index_col}")
+            
+        except Exception as e:
+            print(f"[⚠️] SARIMA fitting failed: {str(e)}. Falling back to simple moving average.")
+            self.results = SimpleMovingAverage(series)
 
     def forecast(self, steps=1):
-        return self.results.forecast(steps=steps)
+        try:
+            if isinstance(self.results, SimpleMovingAverage):
+                return self.results.forecast(steps)
+            
+            forecast = self.results.forecast(steps=steps)
+            
+            # Ensure forecasts are non-negative for rate metrics
+            if self.index_col in [0, 1, 3, 4, 5, 7]:  # Rate metrics
+                forecast = np.maximum(forecast, 0)
+            
+            return forecast
+            
+        except Exception as e:
+            print(f"[⚠️] SARIMA forecast failed: {str(e)}. Using last value.")
+            if isinstance(self.results, SimpleMovingAverage):
+                return self.results.forecast(steps)
+            return np.array([self.results.data.iloc[-1]] * steps)
+
+
+class SimpleMovingAverage:
+    """Fallback forecasting using simple moving average"""
+    def __init__(self, data, window=3):
+        self.data = data
+        self.window = min(window, len(data))
+        self.last_value = data[-1] if len(data) > 0 else 0
+    
+    def forecast(self, steps):
+        if len(self.data) < self.window:
+            return np.array([self.last_value] * steps)
+        
+        # Calculate moving average
+        ma = np.mean(self.data[-self.window:])
+        return np.array([ma] * steps)
 
 
 # --- Forecast Function ---
 def forecast(model, input_sequence, sarima_model, forecast_steps=1):
     model.eval()
 
-    # SARIMA forecast
-    sarima_preds = sarima_model.forecast(steps=forecast_steps)
+    try:
+        # SARIMA forecast
+        sarima_preds = sarima_model.forecast(steps=forecast_steps)
+        
+        # Ensure SARIMA predictions are valid
+        sarima_preds = np.nan_to_num(sarima_preds, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # Normalize input for LSTM
+        input_seq = transform_data(input_sequence)
+        input_seq = torch.tensor(input_seq[-SEQ_LEN:], dtype=torch.float32).unsqueeze(0).to(DEVICE)
 
-    # Normalize input for LSTM
-    input_seq = transform_data(input_sequence)
-    input_seq = torch.tensor(input_seq[-SEQ_LEN:], dtype=torch.float32).unsqueeze(0).to(DEVICE)
+        forecasts = []
 
-    forecasts = []
+        with torch.no_grad():
+            current_input = input_seq.clone()
+            for _ in range(forecast_steps):
+                output = model(current_input)
+                forecasts.append(output.squeeze(0).cpu().numpy())
+                next_input = torch.cat([current_input[:, 1:, :], output.unsqueeze(1)], dim=1)
+                current_input = next_input
 
-    with torch.no_grad():
-        current_input = input_seq.clone()
-        for _ in range(forecast_steps):
-            output = model(current_input)
-            forecasts.append(output.squeeze(0).cpu().numpy())
-            next_input = torch.cat([current_input[:, 1:, :], output.unsqueeze(1)], dim=1)
-            current_input = next_input
+        lstm_forecasts = np.stack(forecasts, axis=0)
+        lstm_forecasts_real = inverse_transform_data(lstm_forecasts)
 
-    lstm_forecasts = np.stack(forecasts, axis=0)
-    lstm_forecasts_real = inverse_transform_data(lstm_forecasts)
+        # Combine SARIMA and LSTM (only for index_col=0)
+        final_forecasts = lstm_forecasts_real.copy()
+        final_forecasts[:, 0] += sarima_preds
 
-    # Combine SARIMA and LSTM (only for index_col=0)
-    final_forecasts = lstm_forecasts_real.copy()
-    final_forecasts[:, 0] += sarima_preds
+        # Ensure forecasts are valid
+        final_forecasts = np.nan_to_num(final_forecasts, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # Calculate bounds with more conservative margins
+        upper_bounds = final_forecasts * 1.05  # Reduced from 1.1
+        lower_bounds = final_forecasts * 0.95  # Increased from 0.9
 
-    upper_bounds = final_forecasts * 1.1
-    lower_bounds = final_forecasts * 0.9
-
-    return final_forecasts, upper_bounds, lower_bounds
+        return final_forecasts, upper_bounds, lower_bounds
+        
+    except Exception as e:
+        print(f"[❌] Error in forecast: {str(e)}")
+        # Return last known values as fallback
+        last_values = input_sequence[-1:]
+        return last_values, last_values * 1.05, last_values * 0.95
 
 
 # --- Load Model and Scaler ---
