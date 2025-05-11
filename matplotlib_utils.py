@@ -10,6 +10,27 @@ import numpy as np
 import os
 import re
 from datetime import datetime
+import matplotlib as mpl
+
+# Set consistent style
+plt.style.use('default')
+mpl.rcParams['figure.facecolor'] = 'white'
+mpl.rcParams['axes.facecolor'] = 'white'
+mpl.rcParams['axes.grid'] = True
+mpl.rcParams['grid.alpha'] = 0.3
+mpl.rcParams['axes.labelsize'] = 12
+mpl.rcParams['axes.titlesize'] = 14
+mpl.rcParams['xtick.labelsize'] = 10
+mpl.rcParams['ytick.labelsize'] = 10
+
+# Define consistent colors
+COLORS = {
+    'actual': '#1f77b4',  # Blue
+    'predicted': '#ff7f0e',  # Orange
+    'anomaly': '#d62728',  # Red
+    'error': '#2ca02c',  # Green
+    'background': '#f8f9fa'  # Light gray
+}
 
 def sanitize_feature_name(feature):
     """Sanitize feature names for file naming by replacing invalid characters.
@@ -21,6 +42,17 @@ def sanitize_feature_name(feature):
         str: Sanitized feature name.
     """
     return re.sub(r'[^a-zA-Z0-9_]', '_', feature).lower()
+
+def format_value(value):
+    """Format value for display based on its magnitude."""
+    if abs(value) >= 1e9:
+        return f'{value/1e9:.2f}B'
+    elif abs(value) >= 1e6:
+        return f'{value/1e6:.2f}M'
+    elif abs(value) >= 1e3:
+        return f'{value/1e3:.2f}K'
+    else:
+        return f'{value:.4f}'
 
 def save_plot_to_file(actual, predicted, feature_name, file_path, forecast_steps=1):
     """Save a plot of actual vs predicted values to a file.
@@ -37,19 +69,19 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, forecast_steps
 
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), height_ratios=[3, 1])
-    fig.suptitle(f'Analysis for {feature_name}', fontsize=16, y=0.95)
+    fig.suptitle(f'Time Series Analysis: {feature_name}', fontsize=16, y=0.95)
 
     # Main plot (top)
-    ax1.plot(time_steps, actual, label='Actual', color='blue', linewidth=2, marker='o', markersize=4)
+    ax1.plot(time_steps, actual, label='Actual', color=COLORS['actual'], linewidth=2, marker='o', markersize=4)
     
     # Handle scalar or array predicted values
     if np.isscalar(predicted) or len(np.shape(predicted)) == 0:
         last_time_step = len(actual) - 1
-        ax1.scatter([last_time_step + 1], [predicted], color='red', label='Predicted', zorder=5, s=100, marker='*')
+        ax1.scatter([last_time_step + 1], [predicted], color=COLORS['predicted'], label='Predicted', zorder=5, s=100, marker='*')
         ax1.axhline(y=predicted, xmin=(last_time_step + 1) / (last_time_step + 2), 
-                   color='red', linestyle='--', alpha=0.5, label='Prediction Line')
+                   color=COLORS['predicted'], linestyle='--', alpha=0.5, label='Prediction Line')
         # Add prediction value annotation
-        ax1.annotate(f'Pred: {predicted:.2f}', 
+        ax1.annotate(f'Pred: {format_value(predicted)}', 
                     xy=(last_time_step + 1, predicted),
                     xytext=(10, 10), textcoords='offset points',
                     bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
@@ -57,7 +89,7 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, forecast_steps
     else:
         predicted = np.array(predicted, dtype=np.float32)
         predicted_steps = np.arange(len(actual) - len(predicted), len(actual))
-        ax1.plot(predicted_steps, predicted, label='Predicted', color='red', 
+        ax1.plot(predicted_steps, predicted, label='Predicted', color=COLORS['predicted'], 
                 linestyle='--', linewidth=2, marker='*', markersize=6)
 
     # Add error bands if we have predictions
@@ -66,7 +98,7 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, forecast_steps
         ax1.fill_between(predicted_steps, 
                         predicted - error, 
                         predicted + error, 
-                        color='red', alpha=0.1, 
+                        color=COLORS['predicted'], alpha=0.1, 
                         label='Error Band')
 
     ax1.set_title('Actual vs Predicted Values', fontsize=12)
@@ -78,14 +110,14 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, forecast_steps
     # Error plot (bottom)
     if not np.isscalar(predicted):
         error = np.abs(actual[-len(predicted):] - predicted)
-        ax2.bar(predicted_steps, error, color='orange', alpha=0.6, label='Absolute Error')
+        ax2.bar(predicted_steps, error, color=COLORS['error'], alpha=0.6, label='Absolute Error')
         ax2.set_title('Prediction Error', fontsize=12)
         ax2.set_xlabel('Time Steps')
         ax2.set_ylabel('Absolute Error')
         ax2.grid(True, alpha=0.3)
     else:
         error = np.abs(actual[-1] - predicted)
-        ax2.bar([len(actual)], [error], color='orange', alpha=0.6, label='Absolute Error')
+        ax2.bar([len(actual)], [error], color=COLORS['error'], alpha=0.6, label='Absolute Error')
         ax2.set_title('Prediction Error', fontsize=12)
         ax2.set_xlabel('Time Steps')
         ax2.set_ylabel('Absolute Error')
@@ -129,19 +161,19 @@ def save_anomaly_detection_plot_to_file(actual, predicted, anomaly, feature_name
 
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), height_ratios=[3, 1])
-    fig.suptitle(f'Anomaly Detection Analysis for {feature_name}', fontsize=16, y=0.95)
+    fig.suptitle(f'Anomaly Detection Analysis: {feature_name}', fontsize=16, y=0.95)
 
     # Main plot (top)
-    ax1.plot(time_steps, actual, label='Actual', color='blue', linewidth=2, marker='o', markersize=4)
+    ax1.plot(time_steps, actual, label='Actual', color=COLORS['actual'], linewidth=2, marker='o', markersize=4)
 
     # Handle scalar or array predicted values
     if np.isscalar(predicted) or len(np.shape(predicted)) == 0:
         last_time_step = len(actual) - 1
-        ax1.scatter([last_time_step + 1], [predicted], color='red', label='Predicted', zorder=5, s=100, marker='*')
+        ax1.scatter([last_time_step + 1], [predicted], color=COLORS['predicted'], label='Predicted', zorder=5, s=100, marker='*')
         ax1.axhline(y=predicted, xmin=(last_time_step + 1) / (last_time_step + 2), 
-                   color='red', linestyle='--', alpha=0.5, label='Prediction Line')
+                   color=COLORS['predicted'], linestyle='--', alpha=0.5, label='Prediction Line')
         # Add prediction value annotation
-        ax1.annotate(f'Pred: {predicted:.2f}', 
+        ax1.annotate(f'Pred: {format_value(predicted)}', 
                     xy=(last_time_step + 1, predicted),
                     xytext=(10, 10), textcoords='offset points',
                     bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
@@ -149,13 +181,13 @@ def save_anomaly_detection_plot_to_file(actual, predicted, anomaly, feature_name
     else:
         predicted = np.array(predicted, dtype=np.float32)
         predicted_steps = np.arange(len(actual) - len(predicted), len(actual))
-        ax1.plot(predicted_steps, predicted, label='Predicted', color='red', 
+        ax1.plot(predicted_steps, predicted, label='Predicted', color=COLORS['predicted'], 
                 linestyle='--', linewidth=2, marker='*', markersize=6)
 
     # Handle scalar or array anomaly values
     if np.isscalar(anomaly) or len(np.shape(anomaly)) == 0:
         if anomaly == 1:
-            ax1.scatter([len(actual)], [predicted], color='orange', label='Anomaly', 
+            ax1.scatter([len(actual)], [predicted], color=COLORS['anomaly'], label='Anomaly', 
                        zorder=5, s=150, marker='*')
             # Add anomaly annotation
             ax1.annotate('ANOMALY DETECTED', 
@@ -167,7 +199,7 @@ def save_anomaly_detection_plot_to_file(actual, predicted, anomaly, feature_name
         anomaly = np.array(anomaly, dtype=np.int32)
         anomaly_points = time_steps[anomaly == 1]
         if len(anomaly_points) > 0:
-            ax1.scatter(anomaly_points, actual[anomaly == 1], color='orange', 
+            ax1.scatter(anomaly_points, actual[anomaly == 1], color=COLORS['anomaly'], 
                        label='Anomalies', zorder=5, s=150, marker='*')
             # Add anomaly annotations
             for point in anomaly_points:
@@ -186,14 +218,14 @@ def save_anomaly_detection_plot_to_file(actual, predicted, anomaly, feature_name
     # Anomaly plot (bottom)
     if not np.isscalar(anomaly):
         anomaly = np.array(anomaly, dtype=np.int32)
-        ax2.bar(time_steps, anomaly, color='orange', alpha=0.6, label='Anomaly Flag')
+        ax2.bar(time_steps, anomaly, color=COLORS['anomaly'], alpha=0.6, label='Anomaly Flag')
         ax2.set_title('Anomaly Detection Results', fontsize=12)
         ax2.set_xlabel('Time Steps')
         ax2.set_ylabel('Anomaly (0/1)')
         ax2.set_ylim(-0.1, 1.1)
         ax2.grid(True, alpha=0.3)
     else:
-        ax2.bar([len(actual)], [anomaly], color='orange', alpha=0.6, label='Anomaly Flag')
+        ax2.bar([len(actual)], [anomaly], color=COLORS['anomaly'], alpha=0.6, label='Anomaly Flag')
         ax2.set_title('Anomaly Detection Results', fontsize=12)
         ax2.set_xlabel('Time Steps')
         ax2.set_ylabel('Anomaly (0/1)')
