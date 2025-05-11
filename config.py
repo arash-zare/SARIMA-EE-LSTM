@@ -43,8 +43,8 @@ FEATURES = list(FEATURE_QUERIES.keys())
 INPUT_DIM = len(FEATURES)
 
 # LSTM parameters
-SEQ_LEN = 20            # Length of input sequence (timesteps)
-FORECAST_STEPS = 15     # How many future steps to forecast
+SEQ_LEN = 1            # Length of input sequence (timesteps)
+FORECAST_STEPS = 2     # How many future steps to forecast
 HIDDEN_DIM = 64         # Hidden layer dimension
 NUM_LAYERS = 2          # Number of LSTM layers
 
