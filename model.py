@@ -7,8 +7,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 import logging
+import os
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from preprocessing import preprocess_for_training, preprocess_for_forecast, fit_scaler, save_scaler, load_scaler, inverse_transform_data
+from data_fetcher import fetch_historical_data
 from config import INPUT_DIM, SEQ_LEN, DEVICE, MODEL_PATH, SCALER_PATH, SARIMA_CONFIGS, FEATURES
 
 def setup_logger():
@@ -182,27 +184,64 @@ def load_model(model_path, scaler_path):
     Load trained SARIMA-EE-LSTM model and scaler.
     
     Args:
-        model_path (str): Path to the model.
-        scaler_path (str): Path to the scaler.
+        model_path (str): Path to the model file.
+        scaler_path (str): Path to the scaler file.
     
     Returns:
         tuple: (EELSTM model, scaler, list of SARIMA forecasters).
     """
     try:
+        if not os.path.exists(model_path):
+            logging.error(f"[❌] Model file not found at {model_path}")
+            return None, None, []
+
+        # Load LSTM model
         model = EELSTM(input_dim=INPUT_DIM).to(DEVICE)
         model.load_state_dict(torch.load(model_path, map_location=DEVICE))
         scaler = load_scaler(scaler_path)
         
-        # Load SARIMA forecasters (re-fit on load)
+        if model is None or scaler is None:
+            logging.error("[❌] Failed to load LSTM model or scaler")
+            return None, None, []
+        
+        # Load and fit SARIMA forecasters
         sarima_forecasters = []
-        for feature in FEATURES:
-            config = SARIMA_CONFIGS.get(feature, {"order": (1, 1, 1), "seasonal_order": (0, 0, 0, 0)})
-            forecaster = SARIMAForecaster(
-                order=config["order"],
-                seasonal_order=config["seasonal_order"]
-            )
-            sarima_forecasters.append(forecaster)
-            logging.info(f"[✔️] Initialized SARIMA for {feature} (fit required)")
+        try:
+            # Load some data to fit SARIMA models
+            data, _ = fetch_historical_data()
+            if data is not None and len(data) > 0:
+                for i, feature in enumerate(FEATURES):
+                    config = SARIMA_CONFIGS.get(feature, {"order": (1, 1, 1), "seasonal_order": (0, 0, 0, 0)})
+                    forecaster = SARIMAForecaster(
+                        order=config["order"],
+                        seasonal_order=config["seasonal_order"]
+                    )
+                    # Fit SARIMA on the feature data
+                    forecaster.fit(data[:, i])
+                    sarima_forecasters.append(forecaster)
+                    logging.info(f"[✔️] Fitted SARIMA for {feature}")
+            else:
+                logging.warning("[⚠️] No data available to fit SARIMA models, using unfitted models")
+                # Initialize unfitted SARIMA models
+                for feature in FEATURES:
+                    config = SARIMA_CONFIGS.get(feature, {"order": (1, 1, 1), "seasonal_order": (0, 0, 0, 0)})
+                    forecaster = SARIMAForecaster(
+                        order=config["order"],
+                        seasonal_order=config["seasonal_order"]
+                    )
+                    sarima_forecasters.append(forecaster)
+                    logging.info(f"[ℹ️] Initialized unfitted SARIMA for {feature}")
+        except Exception as e:
+            logging.warning(f"[⚠️] Error fitting SARIMA models: {str(e)}, using unfitted models")
+            # Initialize unfitted SARIMA models
+            for feature in FEATURES:
+                config = SARIMA_CONFIGS.get(feature, {"order": (1, 1, 1), "seasonal_order": (0, 0, 0, 0)})
+                forecaster = SARIMAForecaster(
+                    order=config["order"],
+                    seasonal_order=config["seasonal_order"]
+                )
+                sarima_forecasters.append(forecaster)
+                logging.info(f"[ℹ️] Initialized unfitted SARIMA for {feature}")
 
         logging.info(f"[✔️] Loaded model from {model_path}")
         return model, scaler, sarima_forecasters
@@ -223,7 +262,7 @@ def forecast(model, data, scaler, sarima_forecasters, steps):
         steps (int): Number of steps to forecast.
     
     Returns:
-        np.ndarray: Forecasted values.
+        np.ndarray: Forecasted values of shape (steps, n_features).
     """
     try:
         model.eval()
@@ -233,13 +272,25 @@ def forecast(model, data, scaler, sarima_forecasters, steps):
             lstm_forecast = model(input_seq).cpu().numpy()
             lstm_forecast = inverse_transform_data(lstm_forecast, scaler)
 
+        # Get SARIMA forecasts for each feature
         sarima_forecasts = []
         for i, forecaster in enumerate(sarima_forecasters):
             sarima_forecast = forecaster.forecast(steps)
             sarima_forecasts.append(sarima_forecast)
 
-        sarima_forecasts = np.array(sarima_forecasts).T
-        combined_forecast = 0.5 * lstm_forecast + 0.5 * sarima_forecasts[:1]
+        # Combine LSTM and SARIMA forecasts
+        sarima_forecasts = np.array(sarima_forecasts).T  # Shape: (steps, n_features)
+        combined_forecast = np.zeros((steps, INPUT_DIM))
+        
+        # For each step, combine LSTM and SARIMA predictions
+        for step in range(steps):
+            if step == 0:
+                # First step uses both LSTM and SARIMA
+                combined_forecast[step] = 0.5 * lstm_forecast[0] + 0.5 * sarima_forecasts[step]
+            else:
+                # Subsequent steps use only SARIMA
+                combined_forecast[step] = sarima_forecasts[step]
+
         return combined_forecast
 
     except Exception as e:

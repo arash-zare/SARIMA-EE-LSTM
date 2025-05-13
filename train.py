@@ -47,8 +47,10 @@ def load_or_fetch_data(args):
             logging.info(f"[✔️] Loaded cached data with shape: {data.shape}")
         else:
             logging.info("[DEBUG] Fetching historical data from VictoriaMetrics...")
-            data = fetch_historical_data(start_offset=args.start_offset, step=args.step, duration=args.duration)
+            data, labels = fetch_historical_data(start_offset=args.start_offset, step=args.step, duration=args.duration)
             logging.info(f"[✔️] Fetched data with shape: {data.shape}")
+            if labels is not None:
+                logging.info(f"[✔️] Fetched labels with shape: {labels.shape}")
 
             if data.shape[0] == 0 or data.shape[1] != INPUT_DIM:
                 logging.warning("[⚠️] Invalid data received, using synthetic data...")

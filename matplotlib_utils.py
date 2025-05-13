@@ -103,6 +103,7 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, mse=None, risk
         if np.any(np.isnan(actual)) or np.any(np.isinf(actual)):
             actual = np.nan_to_num(actual, nan=0.0, posinf=0.0, neginf=0.0)
         time_steps = np.arange(len(actual))
+        last_time_step = len(actual) - 1
 
         # Create figure with three subplots
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12), height_ratios=[3, 1, 1])
@@ -113,7 +114,6 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, mse=None, risk
         
         # Handle scalar or array predicted values
         if np.isscalar(predicted) or len(np.shape(predicted)) == 0:
-            last_time_step = len(actual) - 1
             ax1.scatter([last_time_step + 1], [predicted], color=COLORS['predicted'], label='Predicted', zorder=5, s=100, marker='*')
             ax1.axhline(y=predicted, xmin=(last_time_step + 1) / (last_time_step + 2), 
                        color=COLORS['predicted'], linestyle='--', alpha=0.5, label='Prediction Line')
@@ -143,10 +143,10 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, mse=None, risk
 
         # Mark high-risk points
         if risk_score is not None and np.isscalar(risk_score) and risk_score > 0.5:
-            ax1.scatter([last_time_step + 1], [predicted], color=COLORS['anomaly'], 
-                       label='High Risk', zorder=5, s=150, marker='*')
+            ax1.scatter([last_time_step + 1], [predicted if np.isscalar(predicted) else predicted[-1]], 
+                       color=COLORS['anomaly'], label='High Risk', zorder=5, s=150, marker='*')
             ax1.annotate(f'Risk: {risk_score:.2f}', 
-                        xy=(last_time_step + 1, predicted),
+                        xy=(last_time_step + 1, predicted if np.isscalar(predicted) else predicted[-1]),
                         xytext=(10, 20), textcoords='offset points',
                         bbox=dict(boxstyle='round,pad=0.5', fc='red', alpha=0.5),
                         arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
