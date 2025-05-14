@@ -22,44 +22,59 @@ def setup_logger():
         handlers=[logging.StreamHandler()]
     )
 
-def detect_anomalies(actual: np.ndarray, predicted: np.ndarray, labels: Optional[np.ndarray] = None) -> Dict:
-    """Detect anomalies based on actual and predicted values."""
-    setup_logger()
-    results = {}
+def detect_anomalies(actual_values, predicted_values, model, scaler, sarima_forecasters, thresholds=None):
+    """
+    Detect anomalies in time-series data using SARIMA-EE-LSTM and fuzzy logic.
+    
+    Args:
+        actual_values (np.ndarray): Actual values
+        predicted_values (np.ndarray): Predicted values
+        model: Trained LSTM model
+        scaler: Fitted scaler
+        sarima_forecasters (list): List of SARIMA forecasters
+        thresholds (dict): Optional thresholds for each feature
+        
+    Returns:
+        tuple: (anomalies, metrics)
+    """
     try:
-        if actual.shape != predicted.shape:
-            logging.error(f"[❌] Shape mismatch: actual {actual.shape}, predicted {predicted.shape}")
-            raise ValueError("Actual and predicted arrays must have the same shape")
-
+        if actual_values.shape != predicted_values.shape:
+            raise ValueError(f"Shape mismatch: actual {actual_values.shape} vs predicted {predicted_values.shape}")
+        
+        # Calculate MSE for each feature
+        mse_per_feature = np.mean((actual_values - predicted_values) ** 2, axis=0)
+        
+        # Initialize results
+        anomalies = {}
+        metrics = {}
+        
+        # Check each feature
         for i, feature in enumerate(FEATURES):
-            actual_feature = actual[:, i] if actual.ndim > 1 else actual
-            predicted_feature = predicted[:, i] if predicted.ndim > 1 else predicted
-            mse = np.mean((actual_feature - predicted_feature) ** 2)
-            residual = np.abs(actual_feature - predicted_feature).mean()
-            threshold = THRESHOLDS.get(feature, 1.0)
-            fuzzy_threshold = FUZZY_THRESHOLDS.get(feature, 0.8)
-            fuzzy_risk = evaluate_fuzzy_anomaly(predicted_feature.mean(), actual_feature.mean(), 
-                                              predicted_feature.mean() + threshold, 
-                                              predicted_feature.mean() - threshold)
-            status = "Anomaly" if mse > threshold and mse > 0 else "Normal"
-            results[feature] = {
-                "fuzzy_risk": fuzzy_risk,
-                "status": status,
-                "mse": mse,
-                "predicted_mean": predicted_feature.mean(),
-                "actual_mean": actual_feature.mean()
+            mse = mse_per_feature[i]
+            threshold = thresholds.get(feature, THRESHOLDS.get(feature, 1.0))
+            
+            # Calculate fuzzy risk
+            fuzzy_risk = evaluate_fuzzy_anomaly(
+                predicted_values[0, i],
+                actual_values[0, i],
+                predicted_values[0, i] + 2 * np.std(actual_values[:, i]),
+                predicted_values[0, i] - 2 * np.std(actual_values[:, i])
+            )
+            
+            # Store results
+            anomalies[feature] = mse > threshold
+            metrics[feature] = {
+                'mse': mse,
+                'fuzzy_risk': fuzzy_risk,
+                'threshold': threshold
             }
-            logging.info(f"[✅] {feature}: {status} (fuzzy risk = {fuzzy_risk:.2f})")
-            logging.debug(f"[DEBUG] {feature}: Anomaly={status}, MSE={mse:.6f}, Risk={fuzzy_risk:.2f}, Predicted={predicted_feature.mean():.2f}, Actual={actual_feature.mean():.2f}")
-
-        # Evaluate against labels if provided
-        if labels is not None:
-            predicted_anomalies = [1 if results[feature]["status"] == "Anomaly" else 0 for feature in FEATURES]
-            accuracy = np.mean([1 if pred == label else 0 for pred, label in zip(predicted_anomalies, labels)])
-            logging.info(f"[✅] Anomaly detection accuracy: {accuracy:.2f}")
-
-        return results
-
+            
+            # Log results
+            status = "Anomaly" if anomalies[feature] else "Normal"
+            logging.info(f"{feature}: {status} (MSE: {mse:.4f}, Fuzzy Risk: {fuzzy_risk:.4f})")
+        
+        return anomalies, metrics
+        
     except Exception as e:
         logging.error(f"[❌] Error in detect_anomalies: {str(e)}")
-        return {feature: {"fuzzy_risk": 0.0, "status": "Normal", "mse": 0.0} for feature in FEATURES}
+        return None, None

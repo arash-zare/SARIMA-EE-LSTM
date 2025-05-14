@@ -8,9 +8,9 @@ import os
 import numpy as np
 import torch
 import logging
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import joblib
-from config import SEQ_LEN
+from config import SEQ_LEN, SCALER_PATH
 
 def setup_logger():
     """
@@ -61,110 +61,66 @@ def load_scaler(path):
 
 def fit_scaler(data):
     """
-    Fit a new scaler on the data.
+    Fit a StandardScaler to the data.
     
     Args:
-        data (np.ndarray): Data to fit the scaler, shape (n_samples, n_features).
+        data (np.ndarray): Input data of shape (n_samples, n_features)
     
     Returns:
-        MinMaxScaler: Fitted scaler object.
+        StandardScaler: Fitted scaler
     """
-    setup_logger()
-    try:
-        data = np.array(data, dtype=np.float32)
-        if data.ndim == 1:
-            data = data[:, None]
-        
-        # Handle NaN and inf
-        if np.any(np.isnan(data)) or np.any(np.isinf(data)):
-            logging.warning("[⚠️] Data contains NaN or inf. Replacing with median/mean.")
-            for i in range(data.shape[1]):
-                col = data[:, i]
-                mask = np.isnan(col) | np.isinf(col)
-                if i in [0, 1, 3, 4, 5, 7]:  # Rate metrics (positive)
-                    fill_value = np.median(col[~mask]) if np.sum(~mask) > 0 else 0.0
-                    data[:, i][mask] = fill_value
-                    data[:, i] = np.maximum(data[:, i], 0)
-                else:
-                    fill_value = np.mean(col[~mask]) if np.sum(~mask) > 0 else 0.0
-                    data[:, i][mask] = fill_value
-
-        scaler = MinMaxScaler()
-        scaler.fit(data)
-        logging.info("[✔️] Scaler fitted on data with shape: {}".format(data.shape))
-        return scaler
-    except Exception as e:
-        logging.error(f"[❌] Error fitting scaler: {str(e)}")
-        raise
+    scaler = StandardScaler()
+    scaler.fit(data)
+    return scaler
 
 def transform_data(data, scaler):
     """
-    Transform data using the provided scaler.
+    Transform data using scaler.
     
     Args:
-        data (np.ndarray): Data to transform, shape (n_samples, n_features).
-        scaler: Fitted MinMaxScaler object.
-    
+        data (np.ndarray): Input data
+        scaler: Fitted scaler
+        
     Returns:
-        np.ndarray: Transformed data.
+        np.ndarray: Transformed data
     """
-    setup_logger()
     try:
-        if scaler is None:
-            logging.error("[❌] No scaler provided for transformation")
-            raise ValueError("Scaler is None")
-        
-        data = np.array(data, dtype=np.float32)
+        # Ensure data is 2D
         if data.ndim == 1:
-            data = data[:, None]
+            data = data.reshape(-1, 1)
         
-        # Handle NaN and inf
-        if np.any(np.isnan(data)) or np.any(np.isinf(data)):
-            logging.warning("[⚠️] Data contains NaN or inf. Replacing with median/mean.")
-            for i in range(data.shape[1]):
-                col = data[:, i]
-                mask = np.isnan(col) | np.isinf(col)
-                if i in [0, 1, 3, 4, 5, 7]:  # Rate metrics
-                    fill_value = np.median(col[~mask]) if np.sum(~mask) > 0 else 0.0
-                    data[:, i][mask] = fill_value
-                    data[:, i] = np.maximum(data[:, i], 0)
-                else:
-                    fill_value = np.mean(col[~mask]) if np.sum(~mask) > 0 else 0.0
-                    data[:, i][mask] = fill_value
-
-        transformed = scaler.transform(data)
-        logging.debug(f"[DEBUG] Transformed data shape: {transformed.shape}")
-        return transformed
+        # Transform data
+        transformed_data = scaler.transform(data)
+        
+        return transformed_data
+        
     except Exception as e:
-        logging.error(f"[❌] Error transforming data: {str(e)}")
+        logging.error(f"[❌] Error in transform_data: {str(e)}")
         raise
 
 def inverse_transform_data(data, scaler):
     """
-    Inverse transform data back to original scale.
+    Inverse transform data using scaler.
     
     Args:
-        data (np.ndarray): Data to inverse transform, shape (n_samples, n_features).
-        scaler: Fitted MinMaxScaler object.
-    
+        data (np.ndarray): Scaled data
+        scaler: Fitted scaler
+        
     Returns:
-        np.ndarray: Inverse transformed data.
+        np.ndarray: Inverse transformed data
     """
-    setup_logger()
     try:
-        if scaler is None:
-            logging.error("[❌] No scaler provided for inverse transformation")
-            raise ValueError("Scaler is None")
-        
-        data = np.array(data, dtype=np.float32)
+        # Ensure data is 2D
         if data.ndim == 1:
-            data = data[:, None]
+            data = data.reshape(-1, 1)
         
-        inverse = scaler.inverse_transform(data)
-        logging.debug(f"[DEBUG] Inverse transformed data shape: {inverse.shape}")
-        return inverse
+        # Inverse transform data
+        original_data = scaler.inverse_transform(data)
+        
+        return original_data
+        
     except Exception as e:
-        logging.error(f"[❌] Error inverse transforming data: {str(e)}")
+        logging.error(f"[❌] Error in inverse_transform_data: {str(e)}")
         raise
 
 def preprocess_data(data, scaler, seq_len=SEQ_LEN):
@@ -199,60 +155,144 @@ def preprocess_data(data, scaler, seq_len=SEQ_LEN):
         logging.error(f"[❌] Error preprocessing data: {str(e)}")
         raise
 
-def preprocess_for_training(data, scaler, seq_len=SEQ_LEN):
+def preprocess_for_training(data, seq_len, batch_size):
     """
-    Preprocess data for training (sequence + next-step label).
+    Preprocess data for training with proper train/val/test split.
     
     Args:
-        data (np.ndarray): Input data, shape (n_samples, n_features).
-        scaler: Fitted MinMaxScaler object.
-        seq_len (int): Sequence length.
-    
-    Returns:
-        tuple: (X, y) where X is (n_sequences, seq_len, n_features) and y is (n_sequences, n_features).
-    """
-    setup_logger()
-    try:
-        sequences = preprocess_data(data, scaler, seq_len=seq_len)
-        if sequences.shape[0] < 2:
-            raise ValueError("Not enough sequences for training")
+        data (np.ndarray): Input data array
+        seq_len (int): Sequence length for LSTM
+        batch_size (int): Batch size for training
         
-        X = sequences[:-1]
-        y = sequences[1:, -1, :]  # Predict next timestep
-        logging.info(f"[✔️] Prepared training data: X shape {X.shape}, y shape {y.shape}")
-        return X, y
+    Returns:
+        tuple: (train_loader, val_loader, test_loader)
+    """
+    try:
+        # Ensure data is 2D
+        if data.ndim == 1:
+            data = data.reshape(-1, 1)
+        
+        # Fit scaler and transform data
+        scaler = fit_scaler(data)
+        scaled_data = transform_data(data, scaler)
+        
+        # Save the scaler
+        save_scaler(scaler, SCALER_PATH)
+        
+        # Create sequences
+        X, y = [], []
+        for i in range(len(scaled_data) - seq_len):
+            X.append(scaled_data[i:i+seq_len])
+            y.append(scaled_data[i+seq_len])
+        
+        X = np.array(X, dtype=np.float32)
+        y = np.array(y, dtype=np.float32)
+        
+        # Split into train (70%), validation (15%), and test (15%) sets
+        train_size = int(0.7 * len(X))
+        val_size = int(0.15 * len(X))
+        
+        X_train = X[:train_size]
+        y_train = y[:train_size]
+        X_val = X[train_size:train_size+val_size]
+        y_val = y[train_size:train_size+val_size]
+        X_test = X[train_size+val_size:]
+        y_test = y[train_size+val_size:]
+        
+        # Convert to PyTorch tensors
+        X_train = torch.FloatTensor(X_train)
+        y_train = torch.FloatTensor(y_train)
+        X_val = torch.FloatTensor(X_val)
+        y_val = torch.FloatTensor(y_val)
+        X_test = torch.FloatTensor(X_test)
+        y_test = torch.FloatTensor(y_test)
+        
+        # Create data loaders
+        train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
+        val_dataset = torch.utils.data.TensorDataset(X_val, y_val)
+        test_dataset = torch.utils.data.TensorDataset(X_test, y_test)
+        
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=batch_size, shuffle=False
+        )
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset, batch_size=batch_size, shuffle=False
+        )
+        
+        logging.info(f"[✅] Created data loaders with shapes:")
+        logging.info(f"Train: {X_train.shape}")
+        logging.info(f"Validation: {X_val.shape}")
+        logging.info(f"Test: {X_test.shape}")
+        
+        return train_loader, val_loader, test_loader
+        
     except Exception as e:
         logging.error(f"[❌] Error in preprocess_for_training: {str(e)}")
         raise
 
-def preprocess_for_forecast(data, scaler, seq_len=SEQ_LEN, forecast_steps=1):
+def preprocess_for_forecast(data, scaler, seq_len):
     """
-    Prepare sequences for forecasting.
+    Prepare data for forecasting.
     
     Args:
-        data (np.ndarray): Input data, shape (n_samples, n_features).
-        scaler: Fitted MinMaxScaler object.
-        seq_len (int): Sequence length.
-        forecast_steps (int): Number of forecast steps.
-    
+        data (np.ndarray): Input data
+        scaler: Fitted scaler
+        seq_len (int): Sequence length
+        
     Returns:
-        torch.Tensor: Sequence of shape (1, seq_len, n_features).
+        torch.Tensor: Prepared sequence for forecasting
     """
-    setup_logger()
     try:
-        data = transform_data(data, scaler)
-        data = np.array(data, dtype=np.float32)
-        
+        # Ensure data is 2D
         if data.ndim == 1:
-            data = data[:, None]
+            data = data.reshape(-1, 1)
         
-        if len(data) < seq_len:
-            raise ValueError(f"Not enough data for forecasting: have {len(data)}, need {seq_len}")
+        # Scale data
+        scaled_data = scaler.transform(data)
         
-        last_seq = data[-seq_len:]
-        tensor = torch.tensor(last_seq, dtype=torch.float32).unsqueeze(0)  # Shape: (1, seq_len, n_features)
-        logging.info(f"[✔️] Prepared forecast sequence: shape {tensor.shape}")
-        return tensor
+        # Create sequence
+        if len(scaled_data) < seq_len:
+            # Pad with zeros if sequence is too short
+            padding = np.zeros((seq_len - len(scaled_data), scaled_data.shape[1]))
+            scaled_data = np.vstack([padding, scaled_data])
+        else:
+            # Take last seq_len elements
+            scaled_data = scaled_data[-seq_len:]
+        
+        # Reshape for LSTM input (batch_size, seq_len, features)
+        sequence = scaled_data.reshape(1, seq_len, -1)
+        
+        # Convert to tensor
+        sequence = torch.FloatTensor(sequence)
+        
+        logging.info(f"[✔️] Prepared forecast sequence: shape {sequence.shape}")
+        return sequence
+        
     except Exception as e:
         logging.error(f"[❌] Error in preprocess_for_forecast: {str(e)}")
         raise
+
+def prepare_sequences(data, seq_len):
+    """
+    Prepare sequences for LSTM input.
+    
+    Args:
+        data (np.ndarray): Input data of shape (n_samples, n_features)
+        seq_len (int): Length of each sequence
+    
+    Returns:
+        tuple: (X, y) where:
+            - X is the input sequences of shape (n_sequences, seq_len, n_features)
+            - y is the target values of shape (n_sequences, n_features)
+    """
+    sequences = []
+    targets = []
+    
+    for i in range(len(data) - seq_len):
+        sequences.append(data[i:i+seq_len])
+        targets.append(data[i+seq_len])
+    
+    return np.array(sequences), np.array(targets)

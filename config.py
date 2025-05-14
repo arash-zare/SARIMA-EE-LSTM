@@ -3,7 +3,7 @@ import torch
 import os
 
 # Dataset configuration
-DATASET_PATH = "/home/arash/Desktop/LSTM/network_dataset_labeled.csv"  # Update with your dataset path
+DATASET_PATH = "network_dataset_labeled.csv"  # Update with your dataset path
 
 # Features to monitor (mapped to dataset)
 FEATURES = [
@@ -24,7 +24,7 @@ INPUT_DIM = len(FEATURES)
 HIDDEN_DIM = 64
 NUM_LAYERS = 2
 BATCH_SIZE = 32
-EPOCHS = 50
+EPOCHS = 5
 LEARNING_RATE = 0.001
 
 # Anomaly detection thresholds (adjusted for dataset)
@@ -53,8 +53,36 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # SARIMA configurations for each feature
 SARIMA_CONFIGS = {
-    feature: {
-        "order": (1, 1, 1),
+    "throughput": {
+        "order": (1, 0, 1),
         "seasonal_order": (0, 0, 0, 0)
-    } for feature in FEATURES
+    },
+    "bandwidth": {
+        "order": (1, 0, 1),
+        "seasonal_order": (0, 0, 0, 0)
+    },
+    "Number videos": {
+        "order": (1, 0, 0),  # Simpler model for discrete data
+        "seasonal_order": (0, 0, 0, 0)
+    },
+    "Bitrate video": {
+        "order": (1, 0, 1),
+        "seasonal_order": (0, 0, 0, 0)
+    },
+    "packet_loss": {
+        "order": (1, 0, 0),  # Simpler model for percentage data
+        "seasonal_order": (0, 0, 0, 0)
+    },
+    "congestion": {
+        "order": (1, 0, 0),  # Simpler model for percentage data
+        "seasonal_order": (0, 0, 0, 0)
+    },
+    "latency": {
+        "order": (1, 0, 1),
+        "seasonal_order": (0, 0, 0, 0)
+    },
+    "jitter": {
+        "order": (1, 0, 1),
+        "seasonal_order": (0, 0, 0, 0)
+    }
 }

@@ -163,7 +163,10 @@ from data_fetcher import fetch_historical_data, fetch_latest_data
 from preprocessing import transform_data, inverse_transform_data, fit_scaler, save_scaler
 from model import load_model, forecast
 from detect_anomalies import detect_anomalies
-from config import FEATURES, MODEL_PATH, SAVE_DIR, DATASET_PATH, SEQ_LEN, FORECAST_STEPS, SCALER_PATH
+from config import (
+    FEATURES, MODEL_PATH, SAVE_DIR, DATASET_PATH, 
+    SEQ_LEN, FORECAST_STEPS, SCALER_PATH, THRESHOLDS
+)
 import logging
 try:
     from matplotlib_utils import save_multiple_metrics_to_files, save_anomaly_detection_plot_to_file
@@ -219,14 +222,8 @@ try:
     model_tuple = load_model(MODEL_PATH, SCALER_PATH)
     if model_tuple and all(x is not None for x in model_tuple):
         model, scaler, sarima_forecasters = model_tuple
-        logger.info(f"[✔️] Loaded SARIMA-EE-LSTM model from {MODEL_PATH}")
-        if scaler is None:
-            logger.warning("[⚠️] Scaler not loaded, creating new scaler...")
-            # Load some data to fit the scaler
-            data, _ = fetch_historical_data()
-            scaler = fit_scaler(data)
-            save_scaler(scaler, SCALER_PATH)
-            logger.info(f"[✔️] Created and saved new scaler to {SCALER_PATH}")
+        logger.info(f"[✔️] Loaded model from {MODEL_PATH}")
+        logger.info(f"[✔️] Scaler loaded from {SCALER_PATH}")
     else:
         logger.error(f"[❌] Failed to load model components from {MODEL_PATH}")
         logger.error(f"[DEBUG] Model tuple: {model_tuple}")
@@ -302,38 +299,46 @@ def monitor():
                 time.sleep(10)
                 continue
 
-            predictions = forecast(model, scaled_sequence, scaler, sarima_forecasters, FORECAST_STEPS)
+            predictions, upper_bounds, lower_bounds = forecast(model, scaled_sequence, scaler, sarima_forecasters, FORECAST_STEPS)
+            
+            if predictions is None or upper_bounds is None or lower_bounds is None:
+                logger.error("[❌] Forecast failed")
+                time.sleep(10)
+                continue
+
             predictions = inverse_transform_data(predictions, scaler)
+            upper_bounds = inverse_transform_data(upper_bounds, scaler)
+            lower_bounds = inverse_transform_data(lower_bounds, scaler)
 
             # Detect anomalies
-            anomaly_results = detect_anomalies(input_sequence[-FORECAST_STEPS:], predictions, input_labels[-FORECAST_STEPS:] if input_labels is not None else None)
+            anomalies, metrics = detect_anomalies(
+                input_sequence[-1:],  # Last actual value
+                predictions,        # Predicted values
+                model,
+                scaler,
+                sarima_forecasters,
+                thresholds=THRESHOLDS
+            )
 
-            # Update Prometheus metrics
-            for feature in FEATURES:
-                result = anomaly_results.get(feature, {
-                    "fuzzy_risk": 0.0,
-                    "status": "Normal",
-                    "mse": 0.0,
-                    "predicted_mean": 0.0,
-                    "actual_mean": 0.0
-                })
-                anomaly_gauges[feature].set(1 if result["status"] == "Anomaly" else 0)
-                mse_gauges[feature].set(result["mse"])
-                risk_gauges[feature].set(result["fuzzy_risk"])
-                predicted_gauges[feature].set(result["predicted_mean"])
-                actual_gauges[feature].set(result["actual_mean"])
+            if anomalies is not None and metrics is not None:
+                # Update Prometheus metrics
+                for i, feature in enumerate(FEATURES):
+                    mse_gauges[feature].set(metrics[feature]['mse'])
+                    anomaly_gauges[feature].set(1.0 if anomalies[feature] else 0.0)
+                    predicted_gauges[feature].set(predictions[0, i])
+                    actual_gauges[feature].set(input_sequence[-1, i])
+                    risk_gauges[feature].set(metrics[feature]['fuzzy_risk'])
 
-                # Log risk levels
-                if result["fuzzy_risk"] > 0.8:
-                    logger.warning(f"[🚨] {feature}: High risk (fuzzy risk = {result['fuzzy_risk']:.2f})")
-                elif result["fuzzy_risk"] > 0.5:
-                    logger.info(f"[⚠️] {feature}: Medium risk (fuzzy risk = {result['fuzzy_risk']:.2f})")
-                else:
-                    logger.info(f"[✅] {feature}: Normal (fuzzy risk = {result['fuzzy_risk']:.2f})")
+                    # Log status
+                    if metrics[feature]['fuzzy_risk'] > 0.8:
+                        logger.warning(f"🚨 {feature}: خطر بالا (fuzzy risk = {metrics[feature]['fuzzy_risk']:.2f})")
+                    elif metrics[feature]['fuzzy_risk'] > 0.5:
+                        logger.warning(f"⚠️ {feature}: خطر متوسط (fuzzy risk = {metrics[feature]['fuzzy_risk']:.2f})")
+                    else:
+                        logger.info(f"✅ {feature}: وضعیت نرمال (fuzzy risk = {metrics[feature]['fuzzy_risk']:.2f})")
 
-            # Format metrics string
-            metrics_str = ", ".join(f"{f}: {r['fuzzy_risk']:.2f}" for f, r in anomaly_results.items())
-            logger.info(f"[✔️] Metrics updated: {{ {metrics_str} }}")
+                logger.info("✅ Metrics updated:", dict(zip(FEATURES, [metrics[f]['mse'] for f in FEATURES])))
+                logger.info("✅ Forecast values:", dict(zip(FEATURES, predictions[0])))
 
             # Save plots
             if save_multiple_metrics_to_files and save_anomaly_detection_plot_to_file:
@@ -343,20 +348,20 @@ def monitor():
                         metrics_dict[feature] = {
                             'actual': input_sequence[-FORECAST_STEPS:, i],
                             'predicted': predictions[:, i],
-                            'mse': anomaly_results[feature]["mse"],
-                            'risk_score': anomaly_results[feature]["fuzzy_risk"],
-                            'is_anomaly': result["status"] == "Anomaly"
+                            'mse': metrics[feature]['mse'],
+                            'risk_score': metrics[feature]['fuzzy_risk'],
+                            'is_anomaly': anomalies[feature]
                         }
                     save_multiple_metrics_to_files(metrics_dict, SAVE_DIR)
                     for i, feature in enumerate(FEATURES):
                         save_anomaly_detection_plot_to_file(
                             input_sequence[-FORECAST_STEPS:, i],
                             predictions[:, i],
-                            result["status"] == "Anomaly",
+                            anomalies[feature],
                             feature,
                             SAVE_DIR,
-                            mse=anomaly_results[feature]["mse"],
-                            risk_score=anomaly_results[feature]["fuzzy_risk"]
+                            mse=metrics[feature]['mse'],
+                            risk_score=metrics[feature]['fuzzy_risk']
                         )
                     logger.info(f"[✔️] Plots saved to {SAVE_DIR}")
                 except Exception as e:

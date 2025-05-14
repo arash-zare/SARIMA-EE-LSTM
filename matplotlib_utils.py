@@ -1,4 +1,3 @@
-# matplotlib_utils.py
 """
 This module provides functions to visualize and save plots for actual vs predicted values and anomaly detection.
 It displays all parameters (actual, predicted, MSE, fuzzy risk, upper/lower bounds) and supports scalar/array inputs.
@@ -12,6 +11,10 @@ from datetime import datetime
 import matplotlib as mpl
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 # Set consistent style
 plt.style.use('default')
@@ -26,15 +29,12 @@ mpl.rcParams['ytick.labelsize'] = 10
 
 # Try to use a commonly available font family
 try:
-    # Try DejaVu Sans first (commonly available on Linux)
     plt.rcParams['font.family'] = 'DejaVu Sans'
 except:
     try:
-        # Fallback to sans-serif
         plt.rcParams['font.family'] = 'sans-serif'
     except:
-        # If all else fails, use the default
-        pass
+        logging.warning("Could not set font family; using default.")
 
 # Define consistent colors
 COLORS = {
@@ -57,6 +57,8 @@ def sanitize_feature_name(feature):
     Returns:
         str: Sanitized feature name.
     """
+    if not isinstance(feature, str):
+        feature = str(feature)
     return re.sub(r'[^a-zA-Z0-9_]', '_', feature).lower()
 
 def format_value(value):
@@ -100,6 +102,8 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, mse=None, risk
     try:
         # Validate inputs
         actual = np.array(actual, dtype=np.float32)
+        if len(actual) == 0:
+            raise ValueError("Actual data is empty.")
         if np.any(np.isnan(actual)) or np.any(np.isinf(actual)):
             actual = np.nan_to_num(actual, nan=0.0, posinf=0.0, neginf=0.0)
         time_steps = np.arange(len(actual))
@@ -124,6 +128,8 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, mse=None, risk
                         arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         else:
             predicted = np.array(predicted, dtype=np.float32)
+            if len(predicted) == 0:
+                raise ValueError("Predicted data is empty.")
             predicted_steps = np.arange(len(actual) - len(predicted), len(actual))
             ax1.plot(predicted_steps, predicted, label='Predicted', color=COLORS['predicted'], 
                     linestyle='--', linewidth=2)
@@ -220,13 +226,14 @@ def save_plot_to_file(actual, predicted, feature_name, file_path, mse=None, risk
         full_path = os.path.join(file_path, file_name)
         try:
             plt.savefig(full_path, dpi=300, bbox_inches='tight')
-            print(f"[✔️] Plot saved to {full_path}")
+            logging.info(f"Plot saved to {full_path}")
         except Exception as e:
-            print(f"[❌] Error saving plot to {full_path}: {str(e)}")
-        plt.close()
+            logging.error(f"Error saving plot to {full_path}: {str(e)}")
+        finally:
+            plt.close()
 
     except Exception as e:
-        print(f"[❌] Error in save_plot_to_file for {feature_name}: {str(e)}")
+        logging.error(f"Error in save_plot_to_file for {feature_name}: {str(e)}")
         plt.close()
 
 def save_multiple_metrics_to_files(metrics_dict, save_dir):
@@ -251,7 +258,7 @@ def save_multiple_metrics_to_files(metrics_dict, save_dir):
                 lower_bound=data.get('lower_bound', None)
             )
     except Exception as e:
-        print(f"[❌] Error in save_multiple_metrics_to_files: {str(e)}")
+        logging.error(f"Error in save_multiple_metrics_to_files: {str(e)}")
 
 def save_anomaly_detection_plot_to_file(actual, predicted, anomaly, feature_name, file_path, mse=None, risk_score=None, upper_bound=None, lower_bound=None):
     """
@@ -282,4 +289,4 @@ def save_anomaly_detection_plot_to_file(actual, predicted, anomaly, feature_name
             lower_bound=lower_bound
         )
     except Exception as e:
-        print(f"[❌] Error in save_anomaly_detection_plot_to_file for {feature_name}: {str(e)}")
+        logging.error(f"Error in save_anomaly_detection_plot_to_file for {feature_name}: {str(e)}")
