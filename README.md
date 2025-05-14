@@ -1,155 +1,198 @@
-# 📊 Project: Real-Time Anomaly Detection with SARIMA-EE-LSTM
+# SARIMA-EE-LSTM: Advanced Time Series Forecasting and Anomaly Detection with Fuzzy Logic Risk Assessment
 
----
+A sophisticated ensemble model combining SARIMA (Seasonal AutoRegressive Integrated Moving Average) and Encoder-Enhanced LSTM (Long Short-Term Memory) for high-precision time series forecasting and anomaly detection, enhanced with fuzzy logic-based risk assessment.
 
-## 🌟 Overview
-This project implements a real-time **Anomaly Detection System** for monitoring critical system features (like CPU usage, memory, etc.) using a hybrid model combining **SARIMA** (classical time-series modeling) and **LSTM** (deep learning).
+## 🌟 Key Features
 
-The output is published via a Prometheus-compatible Flask API for visualization in **Grafana**.
+- **Hybrid Forecasting Architecture**: Combines SARIMA and LSTM models for robust predictions
+- **Advanced Anomaly Detection**: Multi-feature anomaly detection with fuzzy logic risk assessment
+- **Real-time Monitoring**: Continuous monitoring with configurable thresholds
+- **Fuzzy Logic Risk Assessment**: Multi-input fuzzy system with Persian language support
+- **Professional Visualization**: Advanced plotting capabilities for time series and anomalies
+- **Scalability**: Handles multiple features simultaneously
+- **Robust Error Handling**: Comprehensive error handling and fallback mechanisms
 
----
+## 📊 Monitored Network Metrics
 
-## 🌍 Main Flow
+The system performs comprehensive analysis on the following network performance indicators:
+- Network Congestion
+- End-to-End Latency
+- Packet Jitter
+- Network Throughput
+- Available Bandwidth
+- Number of Active Video Streams
+- Video Bitrate
+- Packet Loss Rate
 
-1. **Fetch System Metrics** at regular intervals.
-2. **Buffer Recent Data** into a sequence.
-3. **Apply SARIMA** to predict short-term trends and get residuals.
-4. **Use LSTM** on residuals to predict next-step errors.
-5. **Calculate MSE** between actual and predicted residuals.
-6. **Detect Anomalies** if MSE exceeds feature-specific thresholds.
-7. **Forecast Future Values** and publish them.
-8. **Expose Metrics** to Prometheus endpoint `/metrics`.
+## 🛠️ Technical Requirements
 
----
+- Python 3.8+
+- PyTorch 2.0+
+- NumPy 1.21+
+- Pandas 1.3+
+- Statsmodels 0.13+
+- Matplotlib 3.4+
+- Seaborn 0.11+
+- Scikit-learn 1.0+
 
-## 📅 Project Structure
+## 🚀 Installation
 
-| File                  | Purpose |
-|------------------------|---------|
-| `main.py`              | Main runner, fetches data, detects anomalies, serves metrics. |
-| `model.py`             | Defines SARIMA-EE-LSTM hybrid model and forecasting methods. |
-| `detect_anomalies.py`  | Contains logic for anomaly detection per feature. |
-| `preprocessing.py`     | Preprocessing functions: normalization, sequence building. |
-| `data_fetcher.py`      | Module to fetch latest system metrics (optional/customizable). |
-| `config.py`            | Configuration parameters like intervals, thresholds, model paths, device setup. |
-
-
----
-
-## 🎓 Module Descriptions
-
-### `main.py`
-- Loads the trained SARIMA-EE-LSTM model.
-- Fetches latest data points periodically.
-- Maintains a fixed-length buffer of recent values (`SEQ_LEN`).
-- Calls `detect_anomaly_per_feature` to check for anomalies.
-- Forecasts future values.
-- Sets Prometheus metrics (anomaly flags, MSE, forecast values).
-- Runs a Flask server exposing `/metrics`.
-
-
-### `model.py`
-- Defines `SARIMA_EELSTM`, a model that combines:
-  - **SARIMA** for short-term trend estimation.
-  - **LSTM** for deep learning of error patterns.
-- Provides:
-  - `forecast()` function to predict future steps.
-  - (Optional) Functions for saving and loading models.
-
-
-### `detect_anomalies.py`
-- Loads the trained SARIMA-EE-LSTM model.
-- For each new data batch:
-  - Fits a SARIMA model and gets residuals.
-  - Preprocesses residuals.
-  - Predicts next-step residuals with LSTM.
-  - Calculates Mean Squared Error (MSE) per feature.
-  - Flags anomalies where MSE > feature threshold.
-
-
-### `preprocessing.py`
-- Functions for:
-  - Normalizing data (mean/std scaling).
-  - Creating input sequences of a given `SEQ_LEN`.
-  - Inverse-transforming normalized data if needed.
-  - Preparing `(X, y)` pairs for model training.
-
-
-### `data_fetcher.py`
-- Fetches the latest system metrics.
-- You can customize it based on where your data comes from:
-  - Node Exporter (Linux metrics)
-  - VictoriaMetrics queries
-  - Direct system calls (e.g., `psutil`)
-
-
-### `config.py`
-- Central location for all constants:
-  - `FETCH_INTERVAL`: Time between two data fetches.
-  - `FEATURES`: List of system features to monitor.
-  - `MODEL_PATH`: Path to the trained model file.
-  - `THRESHOLDS`: Dictionary mapping each feature to an MSE threshold.
-  - `DEVICE`: `cuda` or `cpu` depending on GPU availability.
-
-
----
-
-## 💡 Key Concepts
-
-| Concept | Description |
-|---|---|
-| SARIMA | Classical statistical model capturing seasonality and trend. |
-| LSTM | Deep learning model handling sequential time-series dependencies. |
-| Residuals | Difference between actual and predicted SARIMA values; these are modeled by LSTM. |
-| Anomaly Detection | If residual prediction MSE > threshold, the point is flagged as an anomaly. |
-| Prometheus Metrics | System exports values like anomaly status, MSE, forecasts for monitoring. |
-
-
----
-
-## 🎉 Why This Approach?
-- **SARIMA** quickly captures regular, linear patterns (seasonality, trend).
-- **LSTM** learns complex, nonlinear error dynamics beyond SARIMA's capability.
-- Combining both gives **higher accuracy** and **fewer false alarms** than using either one alone.
-- Using **Prometheus + Grafana** makes the system easy to visualize and monitor in real-time.
-
-
----
-
-# 🚀 Quick Start
-
+1. Clone the repository:
 ```bash
-# Install required packages
-pip install -r requirements.txt
-
-# Start the monitoring service
-python3 main.py
-
-# Prometheus scrapes http://localhost:8000/metrics
-# Grafana can visualize the results easily.
+git clone https://github.com/yourusername/SARIMA-EE-LSTM.git
+cd SARIMA-EE-LSTM
 ```
 
----
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-# 🌟 Final Thoughts
-> This project provides a powerful, scalable, and smart anomaly detection system suitable for cloud servers, IoT devices, industrial systems, or any real-time environment.
+## 💻 Implementation
 
-Feel free to customize **data_fetcher.py** and **thresholds** to fit your application needs!
+1. **Model Training**:
+```python
+from model import EELSTM, SARIMAForecaster
+from preprocessing import preprocess_for_training
+
+# Data preparation
+data = load_your_data()  # Custom data loading function
+processed_data = preprocess_for_training(data)
+
+# Model initialization and training
+model = EELSTM(input_dim=your_input_dim)
+# Training implementation
+```
+
+2. **Prediction and Anomaly Detection**:
+```python
+from model import forecast, detect_anomalies
+
+# Generate forecasts with confidence intervals
+predictions, upper_bounds, lower_bounds = forecast(model, data, scaler, sarima_forecasters)
+
+# Perform anomaly detection with fuzzy risk assessment
+anomaly_results = detect_anomalies(actual_data, predictions)
+```
+
+3. **Result Visualization**:
+```python
+from matplotlib_utils import plot_time_series, plot_anomaly_detection
+
+# Visualize time series with confidence intervals
+plot_time_series(actual_data, predictions, feature_name="latency")
+
+# Visualize anomaly detection results with risk scores
+plot_anomaly_detection(actual_data, predictions, anomaly_results, feature_name="latency")
+```
+
+## 📈 System Architecture
+
+### EELSTM (Ensemble Encoder LSTM)
+- Multi-layer LSTM architecture with encoder enhancement
+- Advanced feature extraction capabilities
+- Configurable hidden dimensions and layers
+- Bidirectional processing for improved accuracy
+
+### SARIMA Integration
+- Automatic parameter selection and optimization
+- Seasonal and non-seasonal component analysis
+- Robust error handling and validation
+- Adaptive forecasting capabilities
+
+### Fuzzy Logic Risk Assessment
+- Multi-input fuzzy inference system
+- Persian language support for risk levels
+- Configurable risk thresholds and membership functions
+- Real-time risk score computation
+
+## ⚙️ Configuration Parameters
+
+Key parameters in `config.py`:
+- Input dimensions and sequence length
+- Feature-specific thresholds
+- SARIMA model parameters
+- Fuzzy logic membership functions
+- Risk assessment thresholds
+
+## 📊 Visualization Capabilities
+
+The system provides comprehensive visualizations:
+- Time series forecasts with confidence intervals
+- Anomaly detection results with risk scores
+- Fuzzy logic membership functions
+- Real-time monitoring dashboards
+
+## 🔍 Anomaly Detection Methodology
+
+The system employs a sophisticated multi-stage approach:
+1. Statistical analysis (MSE, MAE computation)
+2. Fuzzy logic risk assessment
+3. Threshold-based classification
+4. Persian language risk reporting
+5. Confidence interval analysis
+
+## 🤝 Contributing
+
+We welcome contributions to enhance the system's capabilities. Please follow our contribution guidelines when submitting Pull Requests.
+
+## 📝 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- Research community for time series forecasting approaches
+- Contributors to the open-source data science ecosystem
+- Academic institutions supporting this research
+
+## 📧 Contact
+
+For academic inquiries and research collaboration, please open an issue in the GitHub repository.
 
 ```mermaid
 flowchart TD
-    A[VictoriaMetrics - Time Series Database] -->|PromQL Queries| B[Data Fetcher - fetcher.py - Fetcher Class]
-    B --> C[Preprocessing - preprocessing.py - scaling and sequence creation]
-    C --> D[SARIMA-EE-LSTM Model - model.py - predict future values]
-    D --> E[Compute MSE - detect_anomalies.py - prediction vs actual]
-    E --> F[Compare to Thresholds - config.py - anomaly_threshold]
-    F --> G{Is Anomaly?}
-    G -->|Yes| H1[Mark as Anomaly]
-    G -->|No| H2[Mark as Normal]
-    H1 --> H[Expose Metrics via Flask - main.py - metrics endpoint]
-    H2 --> H
-    H --> I[Prometheus Scrapes metrics Endpoint]
-    I --> J[Alerting Rules or Grafana Dashboard]
+    subgraph Data Collection
+        A[VictoriaMetrics - Time Series Database] -->|PromQL Queries| B[Data Fetcher - fetcher.py]
+    end
+    
+    subgraph Preprocessing
+        B --> C[Preprocessing - preprocessing.py]
+        C -->|Normalized Data| D[Data Buffer]
+    end
+    
+    subgraph Model Architecture
+        D --> E[SARIMA Component]
+        D --> F[LSTM Component]
+        E --> G[Ensemble Predictor]
+        F --> G
+    end
+    
+    subgraph Anomaly Detection
+        G --> H[Error Computation]
+        H --> I[Fuzzy Logic System]
+        I -->|Risk Score| J[Risk Assessment]
+        J -->|High Risk| K[Anomaly Detection]
+        J -->|Low Risk| L[Normal Operation]
+    end
+    
+    subgraph Visualization
+        K --> M[Time Series Plot]
+        L --> M
+        K --> N[Risk Score Plot]
+        L --> N
+    end
+    
+    subgraph Monitoring
+        M --> O[Prometheus Metrics]
+        N --> O
+        O --> P[Grafana Dashboard]
+    end
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style I fill:#bbf,stroke:#333,stroke-width:2px
+    style J fill:#bfb,stroke:#333,stroke-width:2px
+    style K fill:#fbb,stroke:#333,stroke-width:2px
 ```
 
 
